@@ -22,6 +22,8 @@ import struct
 # from PySide6 import QtWidgets
 #from PyQt5 import QtWidgets
 import gzip
+import traceback
+
 
 ##############################################################################
 #                                 HELPERS                                    #
@@ -164,149 +166,172 @@ class EDFReader():
         return self.readHeader()
     
     def readHeader(self):
-        # the following is copied over from MNE-Python and subsequently modified
-        # to more closely reflect the native EDF standard
-        meas_info = {}
-        chan_info = {}
-        filen = os.path.basename(self.fname).replace(' ','')
-        
-        if (self.fname.lower().endswith(".edf")):
-            fid=open(self.fname, "r+b")
-        elif (self.fname.lower().endswith(".edfz")) or (self.fname.lower().endswith(".edf.gz")):
-            fid=gzip.open(self.fname, "rb")
-        
-        assert(fid.tell() == 0)
-        meas_info['magic'] = fid.read(8).strip().decode()
-        subject_id = fid.read(80).strip().decode()  # subject id
-        meas_info['subject_code'] = subject_id.split(' ')[0]
-        meas_info['gender'] = subject_id.split(' ')[1]
-        meas_info['birthdate'] = subject_id.split(' ')[2]
-        
-        meas_info['subject_id'] = subject_id.split(' ')[-1]
-        
-        meas_info['firstname'] = None
-        meas_info['lastname'] = None
-        if not any(substring in meas_info['subject_id'].lower() for substring in {'x,x','x_x','x'}):
-            meas_info['firstname'] = meas_info['subject_id'].replace('_',',').replace('-',',').split(',')[-1]
-            meas_info['lastname'] = meas_info['subject_id'].replace('_',',').replace('-',',').split(',')[0]
-            if meas_info['lastname'] == 'sub':
-                meas_info['lastname']=meas_info['firstname']
-                meas_info['firstname']='sub'
-        else:
-            if any(substring in filen for substring in {'~','_'}) and not filen.startswith('sub'):
-                firstname = filen.replace('_',' ').replace('~',' ').split()[1]
-                meas_info['firstname'] = firstname if firstname.lower() != 'x' else None
-                lastname = filen.replace('_',' ').replace('~',' ').split()[0]
-                meas_info['lastname'] = lastname if lastname.lower() != 'x' else None
-        
-        meas_info['recording_id'] = fid.read(80).strip().decode()  # recording id
-        
-        day, month, year = [int(x) for x in re.findall('(\d+)', fid.read(8).decode())]
-        hour, minute, second = [int(x) for x in re.findall('(\d+)', fid.read(8).decode())]
-        meas_info['day'] = day
-        meas_info['month'] = month
-        meas_info['year'] = year
-        meas_info['hour'] = hour
-        meas_info['minute'] = minute
-        meas_info['second'] = second
-        meas_info['meas_date'] = datetime.datetime(year + 2000, month, day, hour, minute, second).strftime('%Y-%m-%d %H:%M:%S')
-        meas_info['data_offset'] = header_nbytes = int(fid.read(8).decode())
-    
-        subtype = fid.read(44).strip().decode()[:5]
-        if len(subtype) > 0:
-            meas_info['subtype'] = subtype
-        else:
-            meas_info['subtype'] = os.path.splitext(filen)[1][1:].lower()
-    
-        if meas_info['subtype'] in ('24BIT', 'bdf'):
-            meas_info['data_size'] = 3  # 24-bit (3 byte) integers
-        else:
-            meas_info['data_size'] = 2  # 16-bit (2 byte) integers
-    
-        meas_info['n_records'] = int(fid.read(8).decode())
-    
-        # record length in seconds
-        record_length = float(fid.read(8).decode())
-        if record_length == 0:
-            meas_info['record_length'] = record_length = 1.
-            warnings.warn('Headermeas_information is incorrect for record length. '
-                          'Default record length set to 1.')
-        else:
-            meas_info['record_length'] = record_length
-        meas_info['nchan'] = nchan = int(fid.read(4).decode())
-        
-        channels = list(range(nchan))
-        chan_info['ch_names'] = [fid.read(16).strip().decode() for ch in channels]
-        chan_info['transducers'] = [fid.read(80).strip().decode() for ch in channels]
-        chan_info['units'] = [fid.read(8).strip().decode() for ch in channels]
-        chan_info['physical_min'] = np.array([float(fid.read(8).decode()) for ch in channels])
-        chan_info['physical_max'] = np.array([float(fid.read(8).decode()) for ch in channels])
-        chan_info['digital_min'] = np.array([float(fid.read(8).decode()) for ch in channels])
-        chan_info['digital_max'] = np.array([float(fid.read(8).decode()) for ch in channels])
-        prefiltering = [fid.read(80).strip().decode() for ch in channels][:-1]
-        highpass = np.ravel([re.findall('HP:\s+(\w+)', filt) for filt in prefiltering])
-        lowpass = np.ravel([re.findall('LP:\s+(\w+)', filt) for filt in prefiltering])
-        high_pass_default = 0.
-        if highpass.size == 0:
-            meas_info['highpass'] = high_pass_default
-        elif all(highpass):
-            if highpass[0] == 'NaN':
-                meas_info['highpass'] = high_pass_default
-            elif highpass[0] == 'DC':
-                meas_info['highpass'] = 0.
-            else:
-                meas_info['highpass'] = float(highpass[0])
-        else:
-            meas_info['highpass'] = float(np.max(highpass))
-            warnings.warn('Channels contain different highpass filters. '
-                          'Highest filter setting will be stored.')
-        
-        if lowpass.size == 0:
-            meas_info['lowpass'] = None
-        elif all(lowpass):
-            if lowpass[0] == 'NaN':
-                meas_info['lowpass'] = None
-            else:
-                meas_info['lowpass'] = float(lowpass[0])
-        else:
-            meas_info['lowpass'] = float(np.min(lowpass))
-            warnings.warn('%s' % ('Channels contain different lowpass filters.'
-                                  ' Lowest filter setting will be stored.'))
-        # number of samples per record
-        chan_info['n_samps'] = n_samps = np.array([int(fid.read(8).decode()) for ch in channels])
-        meas_info['sampling_frequency'] = int(chan_info['n_samps'][0]/meas_info['record_length'])
-        
-        fid.read(32 *meas_info['nchan']).decode()  # reserved
-        assert fid.tell() == header_nbytes
-        if meas_info['n_records']==-1:
-            # this happens if the n_records is not updated at the end of recording
-            tot_samps = (os.path.getsize(self.fname)-meas_info['data_offset'])/meas_info['data_size']
-            meas_info['n_records'] = tot_samps/sum(n_samps)
-        
-        fid.close()
+        try:
+            # the following is copied over from MNE-Python and subsequently modified
+            # to more closely reflect the native EDF standard
+            meas_info = {}
+            chan_info = {}
+            filen = os.path.basename(self.fname).replace(' ','')
             
-        self.calibrate = (chan_info['physical_max'] - chan_info['physical_min'])/(chan_info['digital_max'] - chan_info['digital_min'])
-        self.offset =  chan_info['physical_min'] - self.calibrate * chan_info['digital_min']
+            if (self.fname.lower().endswith(".edf")):
+                fid=open(self.fname, "r+b")
+            elif (self.fname.lower().endswith(".edfz")) or (self.fname.lower().endswith(".edf.gz")):
+                fid=gzip.open(self.fname, "rb")
+            
+            assert(fid.tell() == 0)
+            meas_info['magic'] = fid.read(8).strip().decode()
+            subject_id = fid.read(80).strip().decode()  # subject id
+            meas_info['subject_code'] = subject_id.split(' ')[0]
+            meas_info['gender'] = subject_id.split(' ')[1]
+            meas_info['birthdate'] = subject_id.split(' ')[2]
+            
+            meas_info['subject_id'] = subject_id.split(' ')[-1]
+            
+            meas_info['firstname'] = None
+            meas_info['lastname'] = None
+            if not any(substring in meas_info['subject_id'].lower() for substring in {'x,x','x_x','x'}):
+                meas_info['firstname'] = meas_info['subject_id'].replace('_',',').replace('-',',').split(',')[-1]
+                meas_info['lastname'] = meas_info['subject_id'].replace('_',',').replace('-',',').split(',')[0]
+                if meas_info['lastname'] == 'sub':
+                    meas_info['lastname']=meas_info['firstname']
+                    meas_info['firstname']='sub'
+            else:
+                if any(substring in filen for substring in {'~','_'}) and not filen.startswith('sub'):
+                    firstname = filen.replace('_',' ').replace('~',' ').split()[1]
+                    meas_info['firstname'] = firstname if firstname.lower() != 'x' else None
+                    lastname = filen.replace('_',' ').replace('~',' ').split()[0]
+                    meas_info['lastname'] = lastname if lastname.lower() != 'x' else None
+            
+            meas_info['recording_id'] = fid.read(80).strip().decode()  # recording id
+            
+            day, month, year = [int(x) for x in re.findall('(\d+)', fid.read(8).decode())]
+            hour, minute, second = [int(x) for x in re.findall('(\d+)', fid.read(8).decode())]
+            meas_info['day'] = day
+            meas_info['month'] = month
+            meas_info['year'] = year
+            meas_info['hour'] = hour
+            meas_info['minute'] = minute
+            meas_info['second'] = second
+            meas_info['meas_date'] = datetime.datetime(year + 2000, month, day, hour, minute, second).strftime('%Y-%m-%d %H:%M:%S')
+            meas_info['data_offset'] = header_nbytes = int(fid.read(8).decode())
         
-        chan_info['calibrate'] = self.calibrate
-        chan_info['offset'] = self.offset
+            subtype = fid.read(44).strip().decode()[:5]
+            if len(subtype) > 0:
+                meas_info['subtype'] = subtype
+            else:
+                meas_info['subtype'] = os.path.splitext(filen)[1][1:].lower()
         
-        for ch in channels:
-            if self.calibrate[ch]<0:
-                self.calibrate[ch] = 1
-                self.offset[ch] = 0
+            if meas_info['subtype'] in ('24BIT', 'bdf'):
+                meas_info['data_size'] = 3  # 24-bit (3 byte) integers
+            else:
+                meas_info['data_size'] = 2  # 16-bit (2 byte) integers
         
-        self.header = {}
-        self.header['meas_info'] = meas_info
-        self.header['chan_info'] = chan_info
+            meas_info['n_records'] = int(fid.read(8).decode())
         
-        self.meas_info = meas_info
-        self.chan_info = chan_info
-        
-        tal_indx = [i for i,x in enumerate(self.header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
-        
-        self.header['meas_info']['millisecond'] = meas_info['millisecond'] = self.read_annotation_block(0, tal_indx)[0][0][0]
-        return self.header
+            # record length in seconds
+            record_length = float(fid.read(8).decode())
+            if record_length == 0:
+                meas_info['record_length'] = record_length = 1.
+                warnings.warn('Headermeas_information is incorrect for record length. '
+                              'Default record length set to 1.')
+            else:
+                meas_info['record_length'] = record_length
+            meas_info['nchan'] = nchan = int(fid.read(4).decode())
+            
+            channels = list(range(nchan))
+            chan_info['ch_names'] = [fid.read(16).strip().decode() for ch in channels]
+            chan_info['transducers'] = [fid.read(80).strip().decode() for ch in channels]
+            chan_info['units'] = [fid.read(8).strip().decode() for ch in channels]
+            chan_info['physical_min'] = np.array([float(fid.read(8).decode()) for ch in channels])
+            chan_info['physical_max'] = np.array([float(fid.read(8).decode()) for ch in channels])
+            chan_info['digital_min'] = np.array([float(fid.read(8).decode()) for ch in channels])
+            chan_info['digital_max'] = np.array([float(fid.read(8).decode()) for ch in channels])
+            prefiltering = [fid.read(80).strip().decode() for ch in channels][:-1]
+            highpass = np.ravel([re.findall('HP:\s+(\w+)', filt) for filt in prefiltering])
+            lowpass = np.ravel([re.findall('LP:\s+(\w+)', filt) for filt in prefiltering])
+            high_pass_default = 0.
+            if highpass.size == 0:
+                meas_info['highpass'] = high_pass_default
+            elif all(highpass):
+                if highpass[0] == 'NaN':
+                    meas_info['highpass'] = high_pass_default
+                elif highpass[0] == 'DC':
+                    meas_info['highpass'] = 0.
+                else:
+                    meas_info['highpass'] = float(highpass[0])
+            else:
+                meas_info['highpass'] = float(np.max(highpass))
+                warnings.warn('Channels contain different highpass filters. '
+                              'Highest filter setting will be stored.')
+            
+            if lowpass.size == 0:
+                meas_info['lowpass'] = None
+            elif all(lowpass):
+                if lowpass[0] == 'NaN':
+                    meas_info['lowpass'] = None
+                else:
+                    meas_info['lowpass'] = float(lowpass[0])
+            else:
+                meas_info['lowpass'] = float(np.min(lowpass))
+                warnings.warn('%s' % ('Channels contain different lowpass filters.'
+                                      ' Lowest filter setting will be stored.'))
+            # number of samples per record
+            chan_info['n_samps'] = n_samps = np.array([int(fid.read(8).decode()) for ch in channels])
+            meas_info['sampling_frequency'] = int(chan_info['n_samps'][0]/meas_info['record_length'])
+            
+            fid.read(32 *meas_info['nchan']).decode()  # reserved
+            assert fid.tell() == header_nbytes
+            if meas_info['n_records']==-1:
+                # this happens if the n_records is not updated at the end of recording
+                tot_samps = (os.path.getsize(self.fname)-meas_info['data_offset'])/meas_info['data_size']
+                meas_info['n_records'] = tot_samps/sum(n_samps)
+            
+            fid.close()
+                
+            self.calibrate = (chan_info['physical_max'] - chan_info['physical_min'])/(chan_info['digital_max'] - chan_info['digital_min'])
+            self.offset =  chan_info['physical_min'] - self.calibrate * chan_info['digital_min']
+            
+            chan_info['calibrate'] = self.calibrate
+            chan_info['offset'] = self.offset
+            
+            for ch in channels:
+                if self.calibrate[ch]<0:
+                    self.calibrate[ch] = 1
+                    self.offset[ch] = 0
+            
+            self.header = {}
+            self.header['meas_info'] = meas_info
+            self.header['chan_info'] = chan_info
+            
+            self.meas_info = meas_info
+            self.chan_info = chan_info
+            
+            tal_indx = [i for i,x in enumerate(self.header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
+            
+            self.header['meas_info']['millisecond'] = meas_info['millisecond'] = self.read_annotation_block(0, tal_indx)[0][0][0]
+            return self.header
+        except Exception as e:
+            self.header = {}
+            ex_type,ex_value,ex_traceback = sys.exc_info()
+            
+            # Extract unformatter stack traces as tuples
+            trace_back = traceback.extract_tb(ex_traceback)
+            
+            # Format stacktrace
+            stack_trace = ["Error happened"]
+            str_msg = ""
+            for trace in trace_back:
+                stack_trace.append("File : %s , Line : %d, Func.Name : %s, Message : %s" % (trace[0], trace[1], trace[2], trace[3]))
+                str_msg += f"\r\nFile : {trace[0]} , Line : {trace[1]}, Func.Name : {trace[2]}, Message : {trace[3]}"
+            # print("Exception type : %s " % ex_type.__name__)
+            # print("Exception message : %s" %ex_value)
+            # print("Stack trace : %s" %stack_trace)
+
+            stack_trace.append("")
+            stack_trace.append("The error is due to checking input file:")
+            stack_trace.append(f"\t\t{self.fname}")
+            warningBox(stack_trace)
+            return 
     
     def _read_annotations_apply_offset(self, triggers):
         events = []
@@ -1623,7 +1648,7 @@ def moveAllFilesinDir(old_fold, new_fold):
             # Move each file to destination Directory
             shutil.move(filePath, new_fold)
 
-def deidentify_edf(source_fname,data_fname, isub, offset_date, rename):
+def deidentify_edf_prv(source_fname,data_fname, isub, offset_date, rename):
     file_in = EDFReader()
     header = file_in.open(data_fname)
     
@@ -1684,24 +1709,82 @@ def deidentify_edf(source_fname,data_fname, isub, offset_date, rename):
     
     return new_name, days_off
 
+
+def deidentify_edf(source_fname,data_fname, isub, offset_date, rename):
+    file_in = EDFReader()
+    header = file_in.open(data_fname)
+    
+    edf_deidentify = {}
+    edf_deidentify['subject_code'] = 'X' if not header['meas_info']['subject_code'] == 'X' else header['meas_info']['subject_code']
+    edf_deidentify['birthdate'] = 'X' if not header['meas_info']['birthdate'] == 'X' else header['meas_info']['birthdate']
+    edf_deidentify['gender'] = 'X' if not header['meas_info']['gender'] == 'X' else header['meas_info']['gender']
+    edf_deidentify['subject_id'] = 'X' if not header['meas_info']['subject_id'] == 'X' else header['meas_info']['subject_id']
+    
+    days_off = 0
+    if offset_date:
+        date_offset = datetime.datetime(2001,1,1)
+        date_study = datetime.datetime.strptime(datetime.datetime.strptime(header['meas_info']['meas_date'], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d'), '%Y-%m-%d')
+        days_offset = datetime.timedelta((date_study - date_offset).days - 1000)
+        days_off = days_offset.days
+    
+   
+    if rename:
+        if any(substring in data_fname.split(os.path.sep)[-1] for substring in {'~','_','-'}):
+            new_name = data_fname.split(os.path.sep)[-1].replace(' ','').replace('~','_').replace('-','_').split('_')
+            if len(new_name)>2:
+                new_name = os.path.join(os.path.dirname(data_fname), '_'.join([isub, ''.join(new_name[2:])]))
+                os.rename(data_fname, new_name)
+        else:
+            new_name = data_fname
+    else:
+        new_name = data_fname
+    
+    header.close()
+    
+    return new_name, days_off
+
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QMessageBox
 
+# class warningBox(QMessageBox):
+#     """Class for warning message box.
+
+#     Displays a warning message box to the user.
+
+#     Parameters
+#     ----------
+#     text: str
+#         Text to appear in the error box.
+#     """
+#     def __init__(self, text):
+#         super().__init__()
+#         self.setIcon(QMessageBox.Icon.Critical)
+#         self.setText(text)
+#         self.setWindowTitle("Error")
+#         self.exec()
+
+from PyQt6.QtWidgets import QMessageBox
+
+
 class warningBox(QMessageBox):
     """Class for warning message box.
-
+    
     Displays a warning message box to the user.
-
+    
     Parameters
     ----------
-    text: str
-        Text to appear in the error box.
+    text: str or list of str
+    Text or list of strings to appear in the error box.
     """
+    
     def __init__(self, text):
         super().__init__()
         self.setIcon(QMessageBox.Icon.Critical)
-        self.setText(text)
         self.setWindowTitle("Error")
-        self.exec()
-
         
+        # Check if input is a list and join with newlines
+        if isinstance(text, list):
+            text = "\n".join(text)
+        
+        self.setText(text)
+        self.exec()

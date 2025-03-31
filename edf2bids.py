@@ -19,6 +19,7 @@ import traceback, sys
 import gzip
 from datetime import timedelta
 import pdb
+from edf_embedded_annotations_redactor import anonymize_edf_complete
 
 
 from ext_lib.edflibpy import EDFreader as EDFLIBReader
@@ -205,7 +206,7 @@ class edf2bids(QtCore.QRunnable):
                         'montage': 'Montage Event'
                         }
         remove_strings = []
-        pdb.set_trace()  # Breakpoint inside thread
+        # pdb.set_trace()  # Breakpoint inside thread
 
         tal_indx = [i for i,x in enumerate(self.header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
 #         tal_indx = [i for i,x in enumerate(header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
@@ -247,78 +248,81 @@ class edf2bids(QtCore.QRunnable):
             
         annotation_data.to_csv(self.annotation_fname, sep='\t', index=False, na_rep='n/a', float_format='%.3f')
     
-    def copyLargeFile(self, src, dest, callback=None, buffer_size=65536*10, max_retries=3):
-        pdb.set_trace()  # Breakpoint inside thread
+    def copyLargeFile(self, src, dest, callback=None, buffer_size=65536*10, max_retries=3, sub_log_dir = ""):
+        # pdb.set_trace()  # Breakpoint inside thread
         
-        try:
-            if not os.path.exists(src):
-                raise FileNotFoundError(f"The source file '{src}' does not exist.")
+        
+        success = anonymize_edf_complete(src, dest,log_dir = sub_log_dir)
+        
+        # try:
+        #     if not os.path.exists(src):
+        #         raise FileNotFoundError(f"The source file '{src}' does not exist.")
     
-            total_size = os.path.getsize(src)
-            update_interval = int(total_size / 1000)  # Update progress every 0.1%
-            next_update = update_interval
-            start_time = time.time()
+        #     total_size = os.path.getsize(src)
+        #     update_interval = int(total_size / 1000)  # Update progress every 0.1%
+        #     next_update = update_interval
+        #     start_time = time.time()
             
-            # Create single line for progress updates
-            self.signals.progressEvent.emit(f"\n{self.conversionStatusText}")
+        #     # Create single line for progress updates
+        #     self.signals.progressEvent.emit(f"\n{self.conversionStatusText}")
     
-            def write_progress(copied):
-                elapsed_time = time.time() - start_time
-                speed = copied / elapsed_time if elapsed_time > 0 else 0
-                remaining_time = (total_size - copied) / speed if speed > 0 else 0
-                estimated_completion = timedelta(seconds=int(remaining_time))
+        #     def write_progress(copied):
+        #         elapsed_time = time.time() - start_time
+        #         speed = copied / elapsed_time if elapsed_time > 0 else 0
+        #         remaining_time = (total_size - copied) / speed if speed > 0 else 0
+        #         estimated_completion = timedelta(seconds=int(remaining_time))
                 
-                # Use carriage return to update same line
-                print(f"\rWorking on {os.path.basename(src)} => {os.path.basename(dest)} Progress: {(copied / total_size) * 100:5.2f}% - ETA: {estimated_completion}", 
-                      end='', flush=True)
+        #         # Use carriage return to update same line
+        #         print(f"\rWorking on {os.path.basename(src)} => {os.path.basename(dest)} Progress: {(copied / total_size) * 100:5.2f}% - ETA: {estimated_completion}", 
+        #               end='', flush=True)
     
-            mode = "wb" if dest.lower().endswith(".edf") else "wb" if dest.lower().endswith((".edfz", ".edf.gz")) else None
-            open_func = open if mode == "wb" else gzip.open
+        #     mode = "wb" if dest.lower().endswith(".edf") else "wb" if dest.lower().endswith((".edfz", ".edf.gz")) else None
+        #     open_func = open if mode == "wb" else gzip.open
     
-            with open_func(dest, mode) as fdest:
-                with open(src, 'rb') as fsrc:
-                    copied = 0
-                    while True:
-                        while self.is_paused:
-                            time.sleep(0.1)
-                        if self.is_killed:
-                            self.running = False
-                            raise WorkerKilledException
+        #     with open_func(dest, mode) as fdest:
+        #         with open(src, 'rb') as fsrc:
+        #             copied = 0
+        #             while True:
+        #                 while self.is_paused:
+        #                     time.sleep(0.1)
+        #                 if self.is_killed:
+        #                     self.running = False
+        #                     raise WorkerKilledException
     
-                        retry_count = 0
-                        while retry_count < max_retries:
-                            try:
-                                buf = fsrc.read(buffer_size)
-                                if not buf:
-                                    break
-                                fdest.write(buf)
-                                break
-                            except OSError as e:
-                                retry_count += 1
-                                if retry_count >= max_retries:
-                                    raise OSError(f"Buffering error: {e}")
-                                time.sleep(0.1)
+        #                 retry_count = 0
+        #                 while retry_count < max_retries:
+        #                     try:
+        #                         buf = fsrc.read(buffer_size)
+        #                         if not buf:
+        #                             break
+        #                         fdest.write(buf)
+        #                         break
+        #                     except OSError as e:
+        #                         retry_count += 1
+        #                         if retry_count >= max_retries:
+        #                             raise OSError(f"Buffering error: {e}")
+        #                         time.sleep(0.1)
     
-                        if DemoMode:
-                            break
-                        if not buf:
-                            break
+        #                 if DemoMode:
+        #                     break
+        #                 if not buf:
+        #                     break
     
-                        copied += len(buf)
-                        if copied >= next_update:
-                            write_progress(copied)
-                            next_update += update_interval
+        #                 copied += len(buf)
+        #                 if copied >= next_update:
+        #                     write_progress(copied)
+        #                     next_update += update_interval
     
-            # Clear progress line and print completion
-            # print("\r" + " " * 80 + "\r", end='', flush=True)  # Clear the line
-            print(f"\r\nFile copy completed - {total_size:,} bytes transferred", flush=True)
+        #     # Clear progress line and print completion
+        #     # print("\r" + " " * 80 + "\r", end='', flush=True)  # Clear the line
+        #     print(f"\r\nFile copy completed - {total_size:,} bytes transferred", flush=True)
     
-            if callback is not None:
-                callback.emit('100%')
+        #     if callback is not None:
+        #         callback.emit('100%')
     
-        except Exception as e:
-            print(f"\nError during file copy: {str(e)}")
-            raise
+        # except Exception as e:
+        #     print(f"\nError during file copy: {str(e)}")
+        #     raise
 
 
 #%%
@@ -411,7 +415,7 @@ class edf2bids(QtCore.QRunnable):
                                         self.bids_settings['json_metadata']['EpochLength'] = epochLength
     #                                     edf2b.copyLargeFile(source_name, data_fname)
                                     
-                                    self.copyLargeFile(source_name, data_fname, self.signals.progressEvent)
+                                    self.copyLargeFile(source_name, data_fname, self.signals.progressEvent, sub_log_dir = subject_dir)
                                     
                                     if not self.deidentify_source:
                                         self.write_annotations(source_name, data_fname, self.signals.progressEvent, deidentify=False)
