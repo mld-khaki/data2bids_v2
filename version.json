@@ -1,0 +1,13 @@
+{
+	"author": "Greydon Gilmore",
+	"copyright": "Copyright (C) 2024, Greydon Gilmore",
+	"license": "The MIT License (MIT)",
+	"version": "1.5",
+	"date": "08012024",
+	"maintainer": "Greydon Gilmore",
+	"email": "greydon.gilmore@lhsc.on.ca",
+	"status": "Beta",
+	"driveFolder":"https://drive.google.com/drive/folders/1op8Gv6sVWosIL7QQyXsUvNNjR5XXXj0j?usp=sharing",
+	"website":"https://data2bids.greydongilmore.com/",
+	"AppName": "data2bids"
+}

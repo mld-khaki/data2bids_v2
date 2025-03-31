@@ -1,0 +1,104 @@
+{
+    "general": {
+        "checkUpdates": true,
+        "darkMode": false,
+        "recordingLabels": "full,clip,stim,ccep"
+    },
+    "json_metadata": {
+        "TaskName": "EEG Clinical",
+        "Experimenter": [
+            "John Smtih, Wayne Smith"
+        ],
+        "Lab": "Some cool lab",
+        "InstitutionName": "Some University",
+        "InstitutionAddress": "123 Fake Street, Fake town, Fake country",
+        "ExperimentDescription": "",
+        "DatasetName": "",
+        "EpochLength": 0
+    },
+    "natus_info": {
+        "Manufacturer": "Natus",
+        "ManufacturersModelName": "Neuroworks",
+        "SamplingFrequency": 1000,
+        "HighpassFilter": NaN,
+        "LowpassFilter": NaN,
+        "MERUnit": "uV",
+        "PowerLineFrequency": 60,
+        "RecordingType": "continuous",
+        "iEEGCoordinateSystem": "continuous",
+        "iEEGElectrodeInfo": {
+            "Manufacturer": "AdTech",
+            "Type": "depth",
+            "Material": "Platinum",
+            "Diameter": 0.86
+        },
+        "EEGElectrodeInfo": {
+            "Manufacturer": "AdTech",
+            "Type": "scalp",
+            "Material": "Platinum",
+            "Diameter": "10"
+        },
+        "ChannelInfo": {
+            "Patient Event": {
+                "type": "PatientEvent",
+                "name": "PE"
+            },
+            "DC": {
+                "type": "DAC",
+                "name": "DAC"
+            },
+            "TRIG": {
+                "type": "TRIG",
+                "name": "TR"
+            },
+            "OSAT": {
+                "type": "OSAT",
+                "name": "OSAT"
+            },
+            "PR": {
+                "type": "PR",
+                "name": "MISC"
+            },
+            "Pleth": {
+                "type": "Pleth",
+                "name": "MISC"
+            },
+            "EDF Annotations": {
+                "type": "Annotations",
+                "name": "ANNO"
+            },
+            "X": {
+                "type": "unused",
+                "name": "unused"
+            },
+            "EKG": {
+                "type": "EKG",
+                "name": "EKG"
+            },
+            "EMG": {
+                "type": "EMG",
+                "name": "EMG"
+            },
+            "EOG": {
+                "type": "EOG",
+                "name": "EOG"
+            },
+            "ECG": {
+                "type": "ECG",
+                "name": "ECG"
+            },
+            "SpO2": {
+                "type": "SpO2",
+                "name": "SpO2"
+            }
+        }
+    },
+    "settings_panel": {
+        "Deidentify_source": false,
+        "offset_dates": false,
+        "gzip_edf": false
+    },
+    "lastInputDirectory": "D:/tempAnonTest/test_inp",
+    "lastOutputDirectory": "C:/temp_out",
+    "lastConvertTypeDirectory": "/media/veracrypt6/projects/ieeg_stimulation/retro/in/sub-R064/Mills~ Linda_b8cd71c8-a3aa-49b4-a69e-7a9496f54ade_2017-11-07_0001_0001.edf"
+}

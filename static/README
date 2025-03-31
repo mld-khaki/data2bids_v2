@@ -1,0 +1,7 @@
+Dataset description
+===================
+
+This dataset includes iEEG and/or EEG recordings from patients in the epilepsy monitoring unit.
+
+Files included for each subject:
+    SEEG recordings in de-identified edf format.
