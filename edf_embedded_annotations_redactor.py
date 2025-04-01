@@ -13,7 +13,7 @@ import ahocorasick  # New dependency: pip install pyahocorasick
 from tqdm import tqdm
 
 # Configure logging
-def setup_logging(log_dir="logs"):
+def setup_logging(log_dir="logs", filename = "logData_"):
     """Set up detailed logging to both console and file"""
     # Create logs directory if it doesn't exist
     if not os.path.exists(log_dir):
@@ -21,12 +21,12 @@ def setup_logging(log_dir="logs"):
         
     # Generate a timestamp for the log file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"edf_anonymize_{timestamp}.log")
-    redaction_map_file = os.path.join(log_dir, f"redaction_map_{timestamp}.txt")
+    log_file = os.path.join(log_dir, filename + f"edf_anonymize_{timestamp}.log")
+    redaction_map_file = os.path.join(log_dir, filename + f"redaction_map_{timestamp}.txt")
     
     # Configure root logger
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     
     # File handler with more detailed formatting
     file_handler = logging.FileHandler(log_file)
@@ -444,7 +444,7 @@ def anonymize_edf_complete(input_path, output_path, buffer_size_mb=64, redaction
     edf_reader = None
     
     if log_dir != "":
-        logger = setup_logging(log_dir)
+        logger = setup_logging(log_dir, filename=os.path.basename(input_path))
     else:
         logger = logging.getLogger('edf_anonymizer')
 

@@ -181,72 +181,82 @@ class edf2bids(QtCore.QRunnable):
 
     def _annotations_data(self, source_name, data_fname, callback, deidentify):
         """
-        Constructs an annotations data tsv file about patient specific events from edf file.
+        Constructs an annotations data tsv file about patient-specific events from edf file.
         
-        :param file_info_run: File header information for specific recording.
-        :type file_info_run: dictionary
-        :param annotation_fname: Filename for the annotations tsv file.
-        :type annotation_fname: string
+        :param source_name: Path to the source EDF file.
         :param data_fname: Path to the raw data file for specific recording.
-        :type data_fname: string
-        :param overwrite: If duplicate data is present in the output directory overwrite it.
-        :type overwrite: boolean
-        :param verbose: Print out process steps.
-        :type verbose: boolean
-        
-        """        
+        :param callback: Function to emit status updates.
+        :param deidentify: Whether to perform de-identification on annotations.
+        """
         file_in = EDFReader()
         file_in.open(source_name)
         self.header = file_in.readHeader()
         
+        # Extract patient info for de-identification
         overwrite_exact = [self.header['meas_info']['firstname'], self.header['meas_info']['lastname']]
-#         overwrite_exact = [header['meas_info']['firstname'], header['meas_info']['lastname']]
-        overwrite_exact = [x for x in overwrite_exact if x is not None]
-        overwrite_match={
-                        'montage': 'Montage Event'
-                        }
+        overwrite_exact = [x for x in overwrite_exact if x is not None]  # Remove None values
+        overwrite_match = {
+            'montage': 'Montage Event'
+        }
         remove_strings = []
-        # pdb.set_trace()  # Breakpoint inside thread
-
-        tal_indx = [i for i,x in enumerate(self.header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
-#         tal_indx = [i for i,x in enumerate(header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
-        
+    
+        tal_indx = [i for i, x in enumerate(self.header['chan_info']['ch_names']) if x.endswith('Annotations')][0]
         callback.emit('...')
-        
+    
         hdl = EDFLIBReader(source_name)
-        events=hdl.annotationslist
-        events=[list(x) for x in events]
-
+        events = hdl.annotationslist
+        events = [list(x) for x in events]
+    
+        # Perform de-identification only if requested
         if deidentify:
             if overwrite_exact:
-                ### Replace any identifier strings
-                identity_idx = [i for i,x in enumerate(events) if any(re.search(substring, x[2], re.IGNORECASE) for substring in overwrite_exact) and not re.search('montage', x[2], re.IGNORECASE)]
+                # Use redact_annotations to replace sensitive information
+                identity_idx = [
+                    i for i, x in enumerate(events)
+                    if any(re.search(substring, x[2], re.IGNORECASE) for substring in overwrite_exact)
+                    and not re.search('montage', x[2], re.IGNORECASE)
+                ]
                 if identity_idx:
-                    events = self.overwrite_annotations(events, data_fname, identity_idx, tal_indx, overwrite_exact, 'replaceExact')
-            
+                    events = self.redact_annotations(events, overwrite_exact)
+    
             if overwrite_match:
-                identity_idx = [i for i,x in enumerate(events) if any(re.search(substring, x[2], re.IGNORECASE) for substring in overwrite_match.keys()) and not any(re.match(substring, x[2], re.IGNORECASE) for substring in list(overwrite_match.values()))]
+                identity_idx = [
+                    i for i, x in enumerate(events)
+                    if any(re.search(substring, x[2], re.IGNORECASE) for substring in overwrite_match.keys())
+                    and not any(re.match(substring, x[2], re.IGNORECASE) for substring in list(overwrite_match.values()))
+                ]
                 if identity_idx:
-                    events = self.overwrite_annotations(events, data_fname, identity_idx, tal_indx, overwrite_match, 'replaceMatch')
-        
+                    events = self.overwrite_annotations(events, identity_idx, tal_indx, overwrite_match, 'replaceMatch')
+    
             if remove_strings:
-                ### Remove unwanted annoations
-                identity_idx = [i for i,x in enumerate(events) if any(re.search(substring, x[2], re.IGNORECASE) for substring in remove_strings)]
+                # Remove unwanted annotations
+                identity_idx = [
+                    i for i, x in enumerate(events)
+                    if any(re.search(substring, x[2], re.IGNORECASE) for substring in remove_strings)
+                ]
                 if identity_idx:
-                    events = self.overwrite_annotations(events, data_fname, identity_idx, tal_indx, remove_strings, 'remove')
-        
+                    events = self.overwrite_annotations(events, identity_idx, tal_indx, remove_strings, 'remove')
+    
+        # Create annotation data for TSV
         annotation_data = pd.DataFrame({})
         if events:
             fulldate = datetime.datetime.strptime(self.header['meas_info']['meas_date'], '%Y-%m-%d %H:%M:%S')
             for iannot in events:
-                data_temp = {'onset': iannot[0]/10000000,
-                             'duration': iannot[1],
-                             'time_abs': (fulldate + datetime.timedelta(seconds=(iannot[0]/10000000)+float(self.header['meas_info']['millisecond']))).strftime('%H:%M:%S.%f'),
-                             'time_rel': sec2time(iannot[0]/10000000, 6),
-                             'event': iannot[2]}
-                annotation_data = pd.concat([annotation_data, pd.DataFrame([data_temp])], axis = 0)
-            
+                data_temp = {
+                    'onset': iannot[0] / 10000000,
+                    'duration': iannot[1],
+                    'time_abs': (fulldate + datetime.timedelta(seconds=(iannot[0] / 10000000) +
+                                                                float(self.header['meas_info']['millisecond']))).strftime(
+                        '%H:%M:%S.%f'),
+                    'time_rel': sec2time(iannot[0] / 10000000, 6),
+                    'event': iannot[2]
+                }
+                annotation_data = pd.concat([annotation_data, pd.DataFrame([data_temp])], axis=0)
+    
+        # Save annotations to TSV
         annotation_data.to_csv(self.annotation_fname, sep='\t', index=False, na_rep='n/a', float_format='%.3f')
+
+
     
     def copyLargeFile(self, src, dest, callback=None, buffer_size=65536*10, max_retries=3, sub_log_dir = ""):
         # pdb.set_trace()  # Breakpoint inside thread
@@ -415,7 +425,7 @@ class edf2bids(QtCore.QRunnable):
                                         self.bids_settings['json_metadata']['EpochLength'] = epochLength
     #                                     edf2b.copyLargeFile(source_name, data_fname)
                                     
-                                    self.copyLargeFile(source_name, data_fname, self.signals.progressEvent, sub_log_dir = subject_dir)
+                                    self.copyLargeFile(source_name, data_fname, self.signals.progressEvent, sub_log_dir = raw_file_path)
                                     
                                     if not self.deidentify_source:
                                         self.write_annotations(source_name, data_fname, self.signals.progressEvent, deidentify=False)

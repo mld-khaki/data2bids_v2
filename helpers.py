@@ -23,6 +23,11 @@ import struct
 #from PyQt5 import QtWidgets
 import gzip
 import traceback
+import ahocorasick
+import re
+import numpy as np
+import pdb
+
 
 
 ##############################################################################
@@ -370,6 +375,8 @@ class EDFReader():
                     read_idx += np.int64(self.header['chan_info']['n_samps'][i]*self.header['meas_info']['data_size'])
                     buf = fid.read(np.int64(self.header['chan_info']['n_samps'][i]*self.header['meas_info']['data_size']))
                     if i==tal_indx:
+                        pat = '([+-]\\d+\\.?\\d*)(\x15(\\d+\\.?\\d*))?(\x14.*?)\x14\x00'
+
                         raw = re.findall(pat, buf.decode('latin-1'))
                         if raw:
                             data.append(list(map(list, [x+(block,) for x in raw])))
@@ -389,73 +396,136 @@ class EDFReader():
 
         return data
     
+    def build_automaton(self, names):
+        """
+        Build an Aho-Corasick automaton for fast string matching.
+        """
+        A = ahocorasick.Automaton()
+        for name in names:
+            A.add_word(name.lower(), name)
+        A.make_automaton()
+        return A
+
+    def redact_annotations(self, events, names_to_redact, replacement_text='.X.'):
+        """
+        Redact sensitive information from annotations.
+    
+        :param events: List of annotation events to redact.
+        :param names_to_redact: List of names to redact.
+        :param replacement_text: Text to replace detected names with.
+        :return: Updated list of events with names redacted.
+        """
+        # Build automaton for name matching
+        automaton = self.build_automaton(names_to_redact)
+    
+        def replace_with_case_preserved(text, name, replacement_text):
+            """Replace whole word occurrences while preserving case."""
+            def replacement(match):
+                return replacement_text if match.group(0).istitle() else replacement_text.lower()
+    
+            pattern = re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
+            return pattern.sub(replacement, text)
+    
+        updated_events = []
+        for event in events:
+            original_text = event[2]  # Get the annotation string
+            lower_text = original_text.lower()
+    
+            # Find all matches using automaton
+            matches = []
+            for end_index, original in automaton.iter(lower_text):
+                start_index = end_index - len(original) + 1
+                matches.append((start_index, end_index, original))
+    
+            # Sort and remove overlapping matches
+            matches.sort(key=lambda x: (x[0], -x[1]))
+            filtered_matches = []
+            current_match = None
+    
+            for match in matches:
+                if not current_match or match[0] > current_match[1]:
+                    current_match = match
+                    filtered_matches.append(match)
+                elif match[0] == current_match[0] and match[1] > current_match[1]:
+                    filtered_matches.pop()
+                    filtered_matches.append(match)
+                    current_match = match
+    
+            # Apply replacements
+            for _, _, name in filtered_matches:
+                original_text = replace_with_case_preserved(original_text, name, replacement_text)
+    
+            # Update the event with redacted text
+            updated_event = [event[0], event[1], original_text, event[3]]
+            updated_events.append(updated_event)
+    
+        return updated_events
+
     def overwrite_annotations(self, events, identity_idx, tal_indx, strings, action):
-        pat = '([+-]\\d+\\.?\\d*)(\x15(\\d+\\.?\\d*))?(\x14.*?)\x14\x00'
+        """
+        Updated version of overwrite_annotations to use redact_annotations.
+        """
+        # Call redact_annotations before modifying the file
+        redacted_events = self.redact_annotations(events, strings)
+        pdb.set_trace()
+        warningBox(redacted_events)
+        
+        # Process redacted events
         indexes = []
         for ident in identity_idx:
-            block_chk = events[ident][-1]
-            replace_idx = [i for i,x in enumerate(strings) if x.lower() in events[ident][2].lower()]
+            block_chk = redacted_events[ident][-1]
+            replace_idx = [i for i, x in enumerate(strings) if x.lower() in redacted_events[ident][2].lower()]
             for irep in replace_idx:
-                assert(block_chk>=0)
-                new_block=[]
+                assert(block_chk >= 0)
+                new_block = []
                 
-                if (self.fname.lower().endswith(".edf")):
-                    fid=open(self.fname, "rb")
-                elif (self.fname.lower().endswith(".edfz")) or (self.fname.lower().endswith(".edf.gz")):
-                    fid=gzip.open(self.fname, "rb")
+                if self.fname.lower().endswith(".edf"):
+                    fid = open(self.fname, "rb")
+                elif self.fname.lower().endswith(".edfz") or self.fname.lower().endswith(".edf.gz"):
+                    fid = gzip.open(self.fname, "rb")
                 
                 assert(fid.tell() == 0)
                 blocksize = np.sum(self.header['chan_info']['n_samps']) * self.header['meas_info']['data_size']
                 fid.seek(np.int64(self.header['meas_info']['data_offset']) + np.int64(block_chk) * np.int64(blocksize))
+                
                 for i in range(self.header['meas_info']['nchan']):
-                    buf = fid.read(np.int64(self.header['chan_info']['n_samps'][i]*self.header['meas_info']['data_size']))
-                    if i==tal_indx:
+                    buf = fid.read(np.int64(self.header['chan_info']['n_samps'][i] * self.header['meas_info']['data_size']))
+                    if i == tal_indx:
                         if action == 'replace':
-                            new_block = buf.lower().replace(bytes(strings[irep],'latin-1').lower(), bytes(''.join(np.repeat('X', len(strings[irep]))),'latin-1'))
-                            events[ident][2] = events[ident][2].lower().replace(strings[irep].lower(), ''.join(np.repeat('X', len(strings[irep]))))
-                            assert(len(new_block)==len(buf))
-                        
-                        elif action == 'replaceWhole':
-                            _idx = [i for i,x in enumerate(strings.keys()) if x.lower() in events[ident][2].lower()]
-                            replace_string = list(strings.values())[_idx[0]]
-                            new_block = buf.lower().replace(bytes(events[ident][2],'latin-1').lower(), bytes(replace_string,'latin-1'))
-                            events[ident][2] = replace_string
-                            new_block = new_block+bytes('\x00'*(len(buf)-len(new_block)),'latin-1')
-                            assert(len(new_block)==len(buf))
+                            new_block = buf.lower().replace(
+                                bytes(strings[irep], 'latin-1').lower(), 
+                                bytes(''.join(np.repeat('X', len(strings[irep]))), 'latin-1')
+                            )
+                            redacted_events[ident][2] = redacted_events[ident][2].lower().replace(
+                                strings[irep].lower(), ''.join(np.repeat('X', len(strings[irep])))
+                            )
+                            assert(len(new_block) == len(buf))
                         
                         elif action == 'remove':
-                            raw = re.findall(pat, buf.decode('latin-1'))[0][0] +'\x14\x14'
-                            new_block = raw + ('\x00'*(len(buf)-len(raw)))
+                            pat = '([+-]\\d+\\.?\\d*)(\x15(\\d+\\.?\\d*))?(\x14.*?)\x14\x00'
+                            raw = re.findall(pat, buf.decode('latin-1'))[0][0] + '\x14\x14'
+                            new_block = raw + ('\x00' * (len(buf) - len(raw)))
                             indexes.append(ident)
-                            assert(len(new_block)==len(buf))
+                            assert(len(new_block) == len(buf))
                 fid.close()
                 
+                # Write modified block
                 if new_block:
+                    if self.fname.lower().endswith(".edf"):
+                        fid = open(self.fname, "wb")
+                    elif self.fname.lower().endswith(".edfz") or self.fname.lower().endswith(".edf.gz"):
+                        fid = gzip.open(self.fname, "wb")
                     
-                    if (self.fname.lower().endswith(".edf")):
-                        fid=open(self.fname, "wb")
-                    elif (self.fname.lower().endswith(".edfz")) or (self.fname.lower().endswith(".edf.gz")):
-                        fid=gzip.open(self.fname, "wb")
-
-                    read_idx = 0
-                    for i in range(self.header['meas_info']['nchan']):
-                        assert(fid.tell() == 0)
-                        blocksize = np.sum(self.header['chan_info']['n_samps']) * self.header['meas_info']['data_size']
-                        fid.seek(np.int64(self.header['meas_info']['data_offset']) + np.int64(block_chk) * np.int64(blocksize))
-
-                        read_idx += np.int64(self.header['chan_info']['n_samps'][i]*self.header['meas_info']['data_size'])
-                        buf = fid.read(np.int64(self.header['chan_info']['n_samps'][i]*self.header['meas_info']['data_size']))
-                        if i==tal_indx:
-                            back = fid.seek(-np.int64(self.header['chan_info']['n_samps'][i]*self.header['meas_info']['data_size']), 1)
-                            assert(fid.tell()==back)
-                            fid.write(new_block)
+                    fid.seek(np.int64(self.header['meas_info']['data_offset']) + np.int64(block_chk) * np.int64(blocksize))
+                    fid.write(new_block)
                     fid.close()
         
+        # Remove events if required
         if indexes:
             for index in sorted(indexes, reverse=True):
-                del events[index]
+                del redacted_events[index]
         
-        return events
+        return redacted_events
     
     def annotations(self):
         """
@@ -1739,7 +1809,6 @@ def deidentify_edf(source_fname,data_fname, isub, offset_date, rename):
     else:
         new_name = data_fname
     
-    header.close()
     
     return new_name, days_off
 
