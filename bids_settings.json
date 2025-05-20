@@ -98,7 +98,7 @@
         "offset_dates": false,
         "gzip_edf": false
     },
-    "lastInputDirectory": "E:/Step_B_EDF_phis/sub-167/sub-167",
-    "lastOutputDirectory": "X:/ieeg_dataset_d/sub-167/tmp",
+    "lastInputDirectory": "E:/Step_B_EDF_phis/sub-169-stp-B",
+    "lastOutputDirectory": "Y:/_pipeline/Step_C_EDF_anon/sub-169",
     "lastConvertTypeDirectory": "/media/veracrypt6/projects/ieeg_stimulation/retro/in/sub-R064/Mills~ Linda_b8cd71c8-a3aa-49b4-a69e-7a9496f54ade_2017-11-07_0001_0001.edf"
 }

@@ -20,6 +20,7 @@ import gzip
 from datetime import timedelta
 import pdb
 from edf_embedded_annotations_redactor import anonymize_edf_complete
+from helpers import init_logger
 
 
 from ext_lib.edflibpy import EDFreader as EDFLIBReader
@@ -261,7 +262,9 @@ class edf2bids(QtCore.QRunnable):
     def copyLargeFile(self, src, dest, callback=None, buffer_size=65536*10, max_retries=3, sub_log_dir = ""):
         # pdb.set_trace()  # Breakpoint inside thread
         
-        
+        log_path = os.path.join(sub_log_dir, "file_log.txt")
+        logger = init_logger(log_path)
+        logger.info(f"Processing new file: {src}")        
         success = anonymize_edf_complete(src, dest,log_dir = sub_log_dir)
         
         # try:
